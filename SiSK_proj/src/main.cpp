@@ -83,7 +83,7 @@ void setup(){
   
   Serial.print("Setting AP (Access Point)…");
   // Remove the password parameter, if you want the AP (Access Point) to be open
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(apIP, apIP, IPAddress(255,255,255,0));
   WiFi.softAP(ssid, password);
   IPAddress IP = WiFi.softAPIP();
@@ -101,7 +101,7 @@ void setup(){
   server.on("/time", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send_P(200, "text/plain", String(currentMillis).c_str());
   });
-  
+
   server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
     String inputMessage = "WiFi network name:" + request->getParam(PARAM_INPUT_1)->value() +\
     "\n WiFi Password: " + request->getParam(PARAM_INPUT_2)->value();
@@ -109,6 +109,10 @@ void setup(){
     // GET input1 value on <ESP_IP>/get?input1=<inputMessage>
     if (request->hasParam(PARAM_INPUT_1) & request->hasParam(PARAM_INPUT_2)) 
     {
+        WiFi.softAPdisconnect();
+        WiFi.disconnect();
+        WiFi.mode(WIFI_AP_STA);
+        delay(100);
         request->send(200, "text/html", inputMessage);
     }
     else 
