@@ -8,6 +8,10 @@
 const char* ssid     = "SiSK_LAB";
 const char* password = "123456789";
 
+
+const char* PARAM_INPUT_1 = "SSID";
+const char* PARAM_INPUT_2 = "WiFi_Password";
+
 unsigned long currentMillis = millis();
   
 // Create AsyncWebServer object on port 80
@@ -41,6 +45,11 @@ const char index_html[] PROGMEM = R"rawliteral(
     <span id="time">%TIME%</span>
     <sup class="units">sec</sup>
   </p>
+   <form action="/get">
+    <p>SSID: <input type="text" name="SSID"></p>
+    <p>WiFi_Password: <input type="text" name="WiFi_Password"></p>
+    <p><input type="submit" value="Submit"></p>
+  </form>
 </body>
 <script>
 setInterval(function ( ) {
@@ -65,15 +74,20 @@ String processor(const String& var){
   return String();
 }
 
+
+IPAddress    apIP(192, 168, 4, 12); //IP addres of ESP
+
 void setup(){
   // Serial port for debugging purposes
   Serial.begin(115200);
   
   Serial.print("Setting AP (Access Point)…");
   // Remove the password parameter, if you want the AP (Access Point) to be open
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255,255,255,0));
   WiFi.softAP(ssid, password);
-
   IPAddress IP = WiFi.softAPIP();
+
   Serial.print("AP IP address: ");
   Serial.println(IP);
 
@@ -87,7 +101,22 @@ void setup(){
   server.on("/time", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send_P(200, "text/plain", String(currentMillis).c_str());
   });
+  
+  server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    String inputMessage = "WiFi network name:" + request->getParam(PARAM_INPUT_1)->value() +\
+    "\n WiFi Password: " + request->getParam(PARAM_INPUT_2)->value();
 
+    // GET input1 value on <ESP_IP>/get?input1=<inputMessage>
+    if (request->hasParam(PARAM_INPUT_1) & request->hasParam(PARAM_INPUT_2)) 
+    {
+        request->send(200, "text/html", inputMessage);
+    }
+    else 
+    {
+      inputMessage = "No message sent";
+    }
+    request->send(200, "text/html", "Dane zostaly zapisane urzadzenie się zresetuje i przejdzie do pracy");
+  });
   // Start server
   server.begin();
 }
