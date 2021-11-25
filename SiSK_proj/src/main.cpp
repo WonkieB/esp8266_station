@@ -4,83 +4,116 @@
 #include <Hash.h>
 #include <ESPAsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include <EEPROM.h>
+
+#include "website.h"
+
+static void setParams(AsyncWebServerRequest* request, uint8_t offset, const char* param);
+static void Config_Setup();
+static void Normal_Setup();
+
+#define EEPROM_SIZE 200
+#define OFFSET_SSID 1
+#define OFFSET_PASSW 21
+#define MODE_BIT 0
 
 const char* ssid     = "SiSK_LAB";
 const char* password = "123456789";
+const char* ssid1     = "HUAWEIP20";
+const char* password1 = "pawel1234";
 
 
 const char* PARAM_INPUT_1 = "SSID";
 const char* PARAM_INPUT_2 = "WiFi_Password";
+
+char* WiFi_SSID = nullptr;
+char* WiFI_PASSW = nullptr;
 
 unsigned long currentMillis = millis();
   
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE HTML><html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    html {
-     font-family: Arial;
-     display: inline-block;
-     margin: 0px auto;
-     text-align: center;
-    }
-    h2 { font-size: 3.0rem; }
-    p { font-size: 3.0rem; }
-    .units { font-size: 1.2rem; }
-    .dht-labels{
-      font-size: 1.5rem;
-      vertical-align:middle;
-      padding-bottom: 15px;
-    }
-  </style>
-</head>
-<body>
-  <h2>SiSK LAB 2021</h2>
-  <p>
-    <span class="time">Time:</span> 
-    <span id="time">%TIME%</span>
-    <sup class="units">sec</sup>
-  </p>
-   <form action="/get">
-    <p>SSID: <input type="text" name="SSID"></p>
-    <p>WiFi_Password: <input type="text" name="WiFi_Password"></p>
-    <p><input type="submit" value="Submit"></p>
-  </form>
-</body>
-<script>
-setInterval(function ( ) {
-  var xhttp = new XMLHttpRequest();
-  xhttp.onreadystatechange = function() {
-    if (this.readyState == 4 && this.status == 200) {
-      document.getElementById("time").innerHTML = this.responseText;
-    }
-  };
-  xhttp.open("GET", "/time", true);
-  xhttp.send();
-}, 1000 ) ;
-</script>
-</html>)rawliteral";
-
-// Replaces placeholder with DHT values
+// Timer
 String processor(const String& var){
-  //Serial.println(var);
   if(var == "TIME"){
     return String(currentMillis);
   }
   return String();
 }
 
-
 IPAddress    apIP(192, 168, 4, 12); //IP addres of ESP
 
 void setup(){
   // Serial port for debugging purposes
-  Serial.begin(115200);
+  Serial.begin(9800);
+  delay(200);
+  EEPROM.begin(EEPROM_SIZE);
+
+  pinMode(D1, INPUT_PULLUP);
+  uint8_t a = digitalRead(D1);
+  Serial.println(a);
+  if (a == 0)
+  {
+    EEPROM.write(MODE_BIT, 0xFF);
+  }
   
+  uint8_t mode = EEPROM.read(MODE_BIT);
+  Serial.print("Mode: ");
+  Serial.println(mode);
+  if(mode == 1)
+  {
+    Normal_Setup();
+  }
+  else
+  {
+    Config_Setup();
+  }
+}
+ 
+void loop(){  
+  currentMillis = millis()/1000;
+}
+
+
+void setParams(AsyncWebServerRequest* request, uint8_t offset, const char* param)
+{
+  AsyncWebParameter* p = request->getParam(param);
+  uint8_t i = 0;
+  char buff[20] = {};
+
+  strcpy(buff, (p->value()).c_str());
+  Serial.print(buff);
+  Serial.println();
+  
+  while (buff[i] != '\0')
+  {
+    Serial.print(buff[i]);
+    EEPROM.write(offset + i, buff[i]);
+    i++;
+  }
+  Serial.println();
+  Serial.println(i);
+  Serial.println(buff[i]);
+  EEPROM.write(offset+i, '\0');
+  
+  i = offset;
+  Serial.println(i);
+  while (EEPROM.read(i) != '\0')
+  {
+    Serial.println(EEPROM.read(i));
+    i++;
+  }  
+  Serial.println(EEPROM.read(i));
+  Serial.println(i);
+  Serial.println("end of function");
+}
+
+static void Config_Setup()
+{
+  for (int i = 0 ; i < EEPROM_SIZE ; i++) {
+    EEPROM.write(i, 0xFF);
+  }
   Serial.print("Setting AP (Access Point)…");
   // Remove the password parameter, if you want the AP (Access Point) to be open
   WiFi.mode(WIFI_AP);
@@ -107,13 +140,21 @@ void setup(){
     "\n WiFi Password: " + request->getParam(PARAM_INPUT_2)->value();
 
     // GET input1 value on <ESP_IP>/get?input1=<inputMessage>
-    if (request->hasParam(PARAM_INPUT_1) & request->hasParam(PARAM_INPUT_2)) 
+    if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_2)) 
     {
+        setParams(request, OFFSET_PASSW, PARAM_INPUT_2);
+        delay(500);
+        setParams(request, OFFSET_SSID, PARAM_INPUT_1);
+        EEPROM.write(MODE_BIT, 1);
+        EEPROM.commit();
+
+        request->send(200, "text/html", inputMessage);
+
         WiFi.softAPdisconnect();
         WiFi.disconnect();
         WiFi.mode(WIFI_AP_STA);
         delay(100);
-        request->send(200, "text/html", inputMessage);
+        ESP.reset();
     }
     else 
     {
@@ -124,7 +165,54 @@ void setup(){
   // Start server
   server.begin();
 }
- 
-void loop(){  
-  currentMillis = millis()/1000;
+
+static void Normal_Setup()
+{
+  char pas[40] ={};
+  char ss[40] ={};
+  uint8_t i = 0;
+
+  while (EEPROM.read(i+OFFSET_SSID) != '\0')
+  { 
+    ss[i] = EEPROM.read(i+OFFSET_SSID);
+    Serial.print(ss[i]);
+    i++;
+  }
+  ss[i] = EEPROM.read(i+OFFSET_SSID);
+  Serial.println();
+  delay(100);
+
+  i=0;
+  while (EEPROM.read(i+OFFSET_PASSW) != '\0')
+  { 
+    pas[i] = EEPROM.read(i+OFFSET_PASSW);
+    Serial.print(pas[i]);
+    i++;
+  }
+  pas[i] = EEPROM.read(i+OFFSET_PASSW);
+  Serial.println();
+  delay(100);
+
+  Serial.println("Normal mode");
+  WiFi.mode(WIFI_AP_STA);
+
+  WiFi.softAPConfig(apIP, apIP, IPAddress(255,255,255,0));
+  WiFi.softAP(ssid, password);
+
+  WiFi.begin(ss, pas);
+
+  i = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        i++;
+        if(i>20) ESP.reset();
+        Serial.print(".");
+    }
+        Serial.println("");
+    Serial.println("WiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+    //todo:
+  //add some code
+
 }
